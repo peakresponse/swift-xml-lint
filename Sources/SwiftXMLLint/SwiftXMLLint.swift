@@ -1,2 +1,100 @@
-// The Swift Programming Language
-// https://docs.swift.org/swift-book
+import CLibxml2
+import Foundation
+
+private let libxmlInit: Void = { xmlInitParser() }()
+private let libxmlLock = NSLock()
+
+public struct XMLValidationError: Sendable {
+    public let line: Int
+    public let column: Int
+    public let message: String
+}
+
+public enum XMLLintError: Error, Sendable {
+    case invalidSchema(String)
+    case invalidXML(String)
+}
+
+public final class XMLValidator: @unchecked Sendable {
+    private let schema: xmlSchemaPtr
+
+    public init(xsd: String) throws {
+        _ = libxmlInit
+        libxmlLock.lock()
+        defer { libxmlLock.unlock() }
+
+        let parserCtxt = xsd.withCString { ptr in
+            xmlSchemaNewMemParserCtxt(ptr, Int32(xsd.utf8.count))
+        }
+        guard let parserCtxt else {
+            throw XMLLintError.invalidSchema("Failed to create schema parser context")
+        }
+        defer { xmlSchemaFreeParserCtxt(parserCtxt) }
+
+        var schemaErrors: [String] = []
+        let parsed: xmlSchemaPtr? = withUnsafeMutablePointer(to: &schemaErrors) { errorsPtr in
+            xmlSchemaSetParserStructuredErrors(
+                parserCtxt,
+                { ctxt, error in
+                    guard let ctxt, let error else { return }
+                    let list = ctxt.assumingMemoryBound(to: [String].self)
+                    let msg = error.pointee.message.map { String(cString: $0) } ?? ""
+                    list.pointee.append(msg)
+                },
+                errorsPtr
+            )
+            return xmlSchemaParse(parserCtxt)
+        }
+
+        guard let parsed else {
+            throw XMLLintError.invalidSchema(schemaErrors.joined())
+        }
+        schema = parsed
+    }
+
+    deinit {
+        libxmlLock.lock()
+        xmlSchemaFree(schema)
+        libxmlLock.unlock()
+    }
+
+    public func validate(xml: String) throws -> [XMLValidationError] {
+        libxmlLock.lock()
+        defer { libxmlLock.unlock() }
+
+        let doc = xml.withCString { ptr in
+            // suppress default stderr output for parse errors
+            xmlSetStructuredErrorFunc(nil, { _, _ in })
+            defer { xmlSetStructuredErrorFunc(nil, nil) }
+            return xmlReadMemory(ptr, Int32(xml.utf8.count), nil, nil, 0)
+        }
+        guard let doc else {
+            let msg = xmlGetLastError().flatMap { $0.pointee.message.map { String(cString: $0) } } ?? "Unknown parse error"
+            throw XMLLintError.invalidXML(msg)
+        }
+        defer { xmlFreeDoc(doc) }
+
+        guard let validCtxt = xmlSchemaNewValidCtxt(schema) else {
+            throw XMLLintError.invalidXML("Failed to create validation context")
+        }
+        defer { xmlSchemaFreeValidCtxt(validCtxt) }
+
+        var validationErrors: [XMLValidationError] = []
+        withUnsafeMutablePointer(to: &validationErrors) { errorsPtr in
+            xmlSchemaSetValidStructuredErrors(
+                validCtxt,
+                { ctxt, error in
+                    guard let ctxt, let error else { return }
+                    let list = ctxt.assumingMemoryBound(to: [XMLValidationError].self)
+                    let msg = error.pointee.message.map { String(cString: $0) } ?? ""
+                    let line = Int(error.pointee.line)
+                    let col = Int(error.pointee.int2)
+                    list.pointee.append(XMLValidationError(line: line, column: col, message: msg))
+                },
+                errorsPtr
+            )
+            xmlSchemaValidateDoc(validCtxt, doc)
+        }
+        return validationErrors
+    }
+}

@@ -13,10 +13,13 @@ let package = Package(
         ),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "SwiftXMLLint"
+            name: "CLibxml2",
+            publicHeadersPath: "include"
+        ),
+        .target(
+            name: "SwiftXMLLint",
+            dependencies: ["CLibxml2"]
         ),
         .testTarget(
             name: "SwiftXMLLintTests",
