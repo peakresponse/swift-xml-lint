@@ -18,14 +18,19 @@ public enum XMLLintError: Error, Sendable {
 public final class XMLValidator: @unchecked Sendable {
     private let schema: xmlSchemaPtr
 
+    public init(xsdURL: URL) throws {
+        schema = try XMLValidator.parseSchema(parserCtxt: xsdURL.path.withCString { xmlSchemaNewParserCtxt($0) })
+    }
+
     public init(xsd: String) throws {
+        schema = try XMLValidator.parseSchema(parserCtxt: xsd.withCString { xmlSchemaNewMemParserCtxt($0, Int32(xsd.utf8.count)) })
+    }
+
+    private static func parseSchema(parserCtxt: xmlSchemaParserCtxtPtr?) throws -> xmlSchemaPtr {
         _ = libxmlInit
         libxmlLock.lock()
         defer { libxmlLock.unlock() }
 
-        let parserCtxt = xsd.withCString { ptr in
-            xmlSchemaNewMemParserCtxt(ptr, Int32(xsd.utf8.count))
-        }
         guard let parserCtxt else {
             throw XMLLintError.invalidSchema("Failed to create schema parser context")
         }
@@ -49,7 +54,7 @@ public final class XMLValidator: @unchecked Sendable {
         guard let parsed else {
             throw XMLLintError.invalidSchema(schemaErrors.joined())
         }
-        schema = parsed
+        return parsed
     }
 
     deinit {
