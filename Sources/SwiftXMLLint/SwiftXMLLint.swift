@@ -8,6 +8,7 @@ public struct XMLValidationError: Sendable {
     public let line: Int
     public let column: Int
     public let message: String
+    public let location: String
 }
 
 public enum XMLLintError: Error, Sendable {
@@ -94,7 +95,15 @@ public final class XMLValidator: @unchecked Sendable {
                     let msg = error.pointee.message.map { String(cString: $0) } ?? ""
                     let line = Int(error.pointee.line)
                     let col = Int(error.pointee.int2)
-                    list.pointee.append(XMLValidationError(line: line, column: col, message: msg))
+                    let location: String
+                    if let rawNode = error.pointee.node {
+                        location = xpathLocation(for: rawNode.assumingMemoryBound(to: _xmlNode.self))
+                    } else if let doc = error.pointee.ctxt.map({ $0.assumingMemoryBound(to: _xmlDoc.self) }) {
+                        location = xpathLocation(forLine: line, in: doc)
+                    } else {
+                        location = ""
+                    }
+                    list.pointee.append(XMLValidationError(line: line, column: col, message: msg, location: location))
                 },
                 errorsPtr
             )
