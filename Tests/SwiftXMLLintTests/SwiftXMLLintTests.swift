@@ -28,7 +28,7 @@ private let invalidXML = "<root></root>"
     let validator = try XMLValidator(xsd: testXSD)
     let errors = try validator.validate(xml: invalidXML)
     #expect(!errors.isEmpty)
-    #expect(errors[0].line > 0)
+    #expect(errors[0].line! > 0)
     #expect(errors[0].location == "/root")
 }
 

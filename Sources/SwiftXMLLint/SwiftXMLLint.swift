@@ -5,10 +5,17 @@ private let libxmlInit: Void = { xmlInitParser() }()
 private let libxmlLock = NSLock()
 
 public struct XMLValidationError: Sendable {
-    public let line: Int
-    public let column: Int
+    public let line: Int?
+    public let column: Int?
     public let message: String
     public let location: String
+
+    public init(line: Int? = nil, column: Int? = nil, message: String, location: String) {
+        self.line = line
+        self.column = column
+        self.message = message
+        self.location = location
+    }
 }
 
 public enum XMLLintError: Error, Sendable {
